@@ -56,18 +56,54 @@ const CACHE: {
 const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
 
 /**
+ * Fetch from Binance (Fallback)
+ * Returns last 1000 days (approx 2.7 years)
+ */
+async function fetchFromBinance(): Promise<BitcoinPrice[]> {
+  try {
+    console.log('Fetching fallback data from Binance...');
+    const response = await axios.get(
+      'https://api.binance.com/api/v3/klines',
+      {
+        params: {
+          symbol: 'BTCUSDT',
+          interval: '1d',
+          limit: 1000
+        },
+        timeout: 5000
+      }
+    );
+    
+    // Binance response: [Open Time, Open, High, Low, Close, Volume, Close Time, ...]
+    // We use Close Time (index 6) or Open Time (index 0) and Close Price (index 4)
+    const data = response.data as any[][];
+    
+    return data.map(item => ({
+      timestamp: item[0], // Open time
+      price: parseFloat(item[4]) // Close price
+    }));
+  } catch (error) {
+    console.error('Error fetching from Binance:', error);
+    return [];
+  }
+}
+
+/**
  * Fetch Bitcoin Market Chart Data
  */
 export async function fetchBitcoinHistory(days: string = '2000'): Promise<BitcoinPrice[]> {
   // Check cache first
   const now = Date.now();
-  if (CACHE.history && (now - CACHE.lastFetch < CACHE_DURATION) && days === '2000') {
+  if (CACHE.history && (now - CACHE.lastFetch < CACHE_DURATION)) {
     console.log('Serving from cache');
     return CACHE.history;
   }
 
+  let result: BitcoinPrice[] = [];
+
+  // Strategy 1: Try Coingecko
   try {
-    console.log(`Fetching Bitcoin history for ${days} days...`);
+    console.log(`Fetching Bitcoin history from Coingecko (${days} days)...`);
     const response = await axios.get(
       `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart`,
       {
@@ -76,29 +112,37 @@ export async function fetchBitcoinHistory(days: string = '2000'): Promise<Bitcoi
           days: days,
           interval: 'daily',
         },
-        timeout: 10000, // 10s timeout
+        timeout: 8000, // 8s timeout
       }
     );
     
     const prices: [number, number][] = response.data.prices;
-    const result = prices.map(([timestamp, price]) => ({
+    result = prices.map(([timestamp, price]) => ({
       timestamp,
       price,
     }));
-
-    // Update cache if we fetched the default range
-    if (days === '2000' && result.length > 0) {
-      CACHE.history = result;
-      CACHE.lastFetch = now;
-    }
-
-    return result;
   } catch (error) {
-    console.error('Error fetching Bitcoin history:', error);
-    // Return cache if available even if expired, as fallback
-    if (CACHE.history) return CACHE.history;
-    return [];
+    console.error('Coingecko API failed, trying fallback...');
   }
+
+  // Strategy 2: Try Binance if Coingecko failed or returned empty
+  if (result.length === 0) {
+    result = await fetchFromBinance();
+  }
+
+  // Strategy 3: Use stale cache if available (even if expired)
+  if (result.length === 0 && CACHE.history && CACHE.history.length > 0) {
+    console.warn('All APIs failed, serving stale cache');
+    return CACHE.history;
+  }
+
+  // Update cache if we got data
+  if (result.length > 0) {
+    CACHE.history = result;
+    CACHE.lastFetch = now;
+  }
+
+  return result;
 }
 
 /**
