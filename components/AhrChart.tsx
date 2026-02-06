@@ -163,10 +163,37 @@ export default function AhrChart({ data }: AhrChartProps) {
           width: 1,
           color: '#a855f7',
           type: 'dotted'
+        },
+        markArea: {
+          silent: true,
+          data: [
+            [
+              {
+                yAxis: 0,
+                itemStyle: {
+                  color: 'rgba(16, 185, 129, 0.05)'
+                }
+              },
+              {
+                yAxis: 25
+              }
+            ],
+            [
+              {
+                yAxis: 75,
+                itemStyle: {
+                  color: 'rgba(244, 63, 94, 0.05)'
+                }
+              },
+              {
+                yAxis: 100
+              }
+            ]
+          ]
         }
       }
     ]
   };
 
-  return <ReactECharts option={option} style={{ height: '550px', width: '100%' }} />;
+  return <ReactECharts option={option} style={{ height: '550px', width: '100%' }} theme="dark" />;
 }
