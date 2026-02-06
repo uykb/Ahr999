@@ -62,7 +62,53 @@ const CACHE: {
   lastFetch: 0,
 };
 
-const CACHE_DURATION = 1000 * 60; // 1 minute cache for near real-time
+const CACHE_DURATION = 1000 * 60 * 60; // 1 hour cache for historical data (since it only changes daily)
+const CURRENT_PRICE_CACHE: {
+  price: number;
+  timestamp: number;
+} = {
+  price: 0,
+  timestamp: 0
+};
+const PRICE_CACHE_DURATION = 1000 * 10; // 10 seconds cache for current price
+
+/**
+ * Fetch Current Bitcoin Price (Real-time)
+ */
+async function fetchCurrentPrice(): Promise<number | null> {
+  const now = Date.now();
+  if (CURRENT_PRICE_CACHE.price > 0 && (now - CURRENT_PRICE_CACHE.timestamp < PRICE_CACHE_DURATION)) {
+    return CURRENT_PRICE_CACHE.price;
+  }
+
+  try {
+    // Strategy 1: Binance Ticker (Fastest & Most reliable for real-time)
+    const response = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { timeout: 3000 });
+    const price = parseFloat(response.data.price);
+    if (!isNaN(price) && price > 0) {
+      CURRENT_PRICE_CACHE.price = price;
+      CURRENT_PRICE_CACHE.timestamp = now;
+      return price;
+    }
+  } catch (e) {
+    console.warn('Binance ticker failed, trying Coingecko...');
+  }
+
+  try {
+    // Strategy 2: Coingecko Simple Price
+    const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd', { timeout: 3000 });
+    const price = response.data.bitcoin.usd;
+    if (typeof price === 'number' && price > 0) {
+      CURRENT_PRICE_CACHE.price = price;
+      CURRENT_PRICE_CACHE.timestamp = now;
+      return price;
+    }
+  } catch (e) {
+    console.error('All current price APIs failed');
+  }
+
+  return null;
+}
 
 /**
  * Fetch from Binance (Fallback)
@@ -85,11 +131,11 @@ async function fetchFromBinance(): Promise<BitcoinPrice[]> {
     
     // Binance response: [Open Time, Open, High, Low, Close, Volume, Close Time, ...]
     // We use Close Time (index 6) or Open Time (index 0) and Close Price (index 4)
-    const data = response.data as any[][];
+    const data = response.data as (string | number)[][];
     
     return data.map(item => ({
-      timestamp: item[0], // Open time
-      price: parseFloat(item[4]) // Close price
+      timestamp: item[0] as number, // Open time
+      price: parseFloat(item[4] as string) // Close price
     }));
   } catch (error) {
     console.error('Error fetching from Binance:', error);
@@ -168,6 +214,7 @@ export async function fetchBitcoinHistory(days: string = '2000'): Promise<Bitcoi
 export async function fetchFearAndGreed(limit: number = 1): Promise<FearAndGreed[]> {
   try {
     const response = await axios.get(`https://api.alternative.me/fng/?limit=${limit}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return response.data.data.map((item: any) => ({
       value: parseInt(item.value),
       value_classification: item.value_classification,
@@ -184,21 +231,43 @@ export async function fetchFearAndGreed(limit: number = 1): Promise<FearAndGreed
  */
 export async function getAHR999Data(): Promise<AHR999Result | null> {
   // Use '2000' instead of '300' to share cache with history chart
-  const [history, fng] = await Promise.all([
+  const [history, fng, currentPriceRealtime] = await Promise.all([
     fetchBitcoinHistory('2000'),
-    fetchFearAndGreed(1)
+    fetchFearAndGreed(1),
+    fetchCurrentPrice()
   ]);
   
   if (history.length < 200) {
     return null;
   }
 
-  const currentItem = history[history.length - 1];
-  const currentPrice = currentItem.price;
-  const currentDate = new Date(currentItem.timestamp);
+  // Determine current price: prefer real-time, fallback to history last item
+  const historyLastItem = history[history.length - 1];
+  const currentPrice = currentPriceRealtime || historyLastItem.price;
+  const currentTimestamp = currentPriceRealtime ? Date.now() : historyLastItem.timestamp;
+  const currentDate = new Date(currentTimestamp);
 
-  const last200 = history.slice(-200).map(p => p.price);
-  const geometricMean200 = calculateGeometricMean(last200);
+  // Calculate Geometric Mean
+  // We need the last 199 days from history + current real-time price
+  // If history last item is "today" (same UTC day), we replace it with real-time price
+  // If history last item is "yesterday", we append real-time price
+  
+  const lastHistoryDate = new Date(historyLastItem.timestamp);
+  const isSameDay = lastHistoryDate.toISOString().split('T')[0] === currentDate.toISOString().split('T')[0];
+
+  let priceListForGeoMean: number[] = [];
+  
+  if (isSameDay) {
+    // Replace the last item from history with current real-time price
+    priceListForGeoMean = history.slice(-200).map(p => p.price);
+    priceListForGeoMean[priceListForGeoMean.length - 1] = currentPrice;
+  } else {
+    // Append current price
+    priceListForGeoMean = history.slice(-199).map(p => p.price);
+    priceListForGeoMean.push(currentPrice);
+  }
+
+  const geometricMean200 = calculateGeometricMean(priceListForGeoMean);
   const expectedPrice = calculateExpectedPrice(currentDate);
   const ahr999 = (currentPrice / geometricMean200) * (currentPrice / expectedPrice);
 
@@ -211,7 +280,7 @@ export async function getAHR999Data(): Promise<AHR999Result | null> {
     ahr999,
     geometricMean200,
     expectedPrice,
-    timestamp: currentItem.timestamp,
+    timestamp: currentTimestamp,
     indicatorStatus: status,
     fng: fng[0]
   };

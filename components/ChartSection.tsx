@@ -13,7 +13,7 @@ export default function ChartSection() {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
+    // setLoading(true); // Already true by default
     axios.get('/api/ahr999?type=history')
       .then(res => {
         if (Array.isArray(res.data) && res.data.length > 0) {
