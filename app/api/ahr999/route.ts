@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAHR999Data, getAHR999History } from '@/lib/ahr999';
 
-export const dynamic = 'force-dynamic'; // Disable caching for now to get fresh data
+// Allow caching for history, but force dynamic for current price check
+export const dynamic = 'force-dynamic'; 
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -10,13 +11,23 @@ export async function GET(request: NextRequest) {
   try {
     if (type === 'history') {
       const data = await getAHR999History();
-      return NextResponse.json(data);
+      
+      // Add Cache-Control header for history data
+      return NextResponse.json(data, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+        },
+      });
     } else {
       const data = await getAHR999Data();
       if (!data) {
         return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 });
       }
-      return NextResponse.json(data);
+      return NextResponse.json(data, {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0', // Always fresh for current status
+        },
+      });
     }
   } catch (error) {
     console.error('API Error:', error);

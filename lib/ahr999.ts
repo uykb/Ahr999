@@ -44,11 +44,30 @@ export function calculateExpectedPrice(date: Date): number {
   return Math.pow(10, 5.84 * Math.log10(ageInDays) - 17.01);
 }
 
+// Simple in-memory cache to prevent hitting Coingecko Rate Limits
+const CACHE: {
+  history: BitcoinPrice[] | null;
+  lastFetch: number;
+} = {
+  history: null,
+  lastFetch: 0,
+};
+
+const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
+
 /**
  * Fetch Bitcoin Market Chart Data
  */
-export async function fetchBitcoinHistory(days: string = 'max'): Promise<BitcoinPrice[]> {
+export async function fetchBitcoinHistory(days: string = '2000'): Promise<BitcoinPrice[]> {
+  // Check cache first
+  const now = Date.now();
+  if (CACHE.history && (now - CACHE.lastFetch < CACHE_DURATION) && days === '2000') {
+    console.log('Serving from cache');
+    return CACHE.history;
+  }
+
   try {
+    console.log(`Fetching Bitcoin history for ${days} days...`);
     const response = await axios.get(
       `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart`,
       {
@@ -57,16 +76,27 @@ export async function fetchBitcoinHistory(days: string = 'max'): Promise<Bitcoin
           days: days,
           interval: 'daily',
         },
+        timeout: 10000, // 10s timeout
       }
     );
     
     const prices: [number, number][] = response.data.prices;
-    return prices.map(([timestamp, price]) => ({
+    const result = prices.map(([timestamp, price]) => ({
       timestamp,
       price,
     }));
+
+    // Update cache if we fetched the default range
+    if (days === '2000' && result.length > 0) {
+      CACHE.history = result;
+      CACHE.lastFetch = now;
+    }
+
+    return result;
   } catch (error) {
     console.error('Error fetching Bitcoin history:', error);
+    // Return cache if available even if expired, as fallback
+    if (CACHE.history) return CACHE.history;
     return [];
   }
 }
@@ -75,7 +105,8 @@ export async function fetchBitcoinHistory(days: string = 'max'): Promise<Bitcoin
  * Get current AHR999 Data
  */
 export async function getAHR999Data(): Promise<AHR999Result | null> {
-  const history = await fetchBitcoinHistory('300');
+  // Use '2000' instead of '300' to share cache with history chart
+  const history = await fetchBitcoinHistory('2000');
   
   if (history.length < 200) {
     return null;
@@ -106,12 +137,10 @@ export async function getAHR999Data(): Promise<AHR999Result | null> {
 
 /**
  * Get Historical AHR999 Data (for Chart)
- * This is heavy, we might want to limit the range or cache it.
- * We will calculate it for the fetched range.
  */
 export async function getAHR999History(): Promise<AHR999HistoryPoint[]> {
-  // Fetch full history or last few years
-  const history = await fetchBitcoinHistory('max'); // max to be safe for calculation, or maybe '3650' (10 years)
+  // Use default (2000 days) to leverage cache
+  const history = await fetchBitcoinHistory('2000');
   
   if (history.length < 200) return [];
 
