@@ -1,10 +1,17 @@
-import { getAHR999Data } from '@/lib/ahr999';
+'use client';
+
+import { useEffect, useState } from 'react';
+import useSWR from 'swr';
 import ChartSection from '@/components/ChartSection';
+import { AHR999Result } from '@/lib/ahr999';
 
-export const dynamic = 'force-dynamic';
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
-export default async function Home() {
-  const data = await getAHR999Data();
+export default function Home() {
+  const { data, error, isLoading } = useSWR<AHR999Result>('/api/ahr999', fetcher, {
+    refreshInterval: 60000, // 每一分钟自动刷新一次
+    revalidateOnFocus: true
+  });
 
   const getStatusColor = (status: string) => {
     switch (status) {

@@ -62,7 +62,7 @@ const CACHE: {
   lastFetch: 0,
 };
 
-const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
+const CACHE_DURATION = 1000 * 60; // 1 minute cache for near real-time
 
 /**
  * Fetch from Binance (Fallback)
