@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { differenceInDays } from 'date-fns';
+import { differenceInDays, format } from 'date-fns';
 import { STATIC_BITCOIN_HISTORY } from './static-data';
 
 export const GENESIS_DATE = new Date('2009-01-03');
@@ -9,6 +9,12 @@ export interface BitcoinPrice {
   price: number;
 }
 
+export interface FearAndGreed {
+  value: number;
+  value_classification: string;
+  timestamp: number;
+}
+
 export interface AHR999Result {
   currentPrice: number;
   ahr999: number;
@@ -16,6 +22,7 @@ export interface AHR999Result {
   expectedPrice: number;
   timestamp: number;
   indicatorStatus: 'buy' | 'invest' | 'high'; // <0.45, 0.45-1.2, >1.2
+  fng?: FearAndGreed;
 }
 
 export interface AHR999HistoryPoint {
@@ -24,6 +31,7 @@ export interface AHR999HistoryPoint {
   ahr999: number;
   geometricMean200: number;
   expectedPrice: number;
+  fng?: number;
 }
 
 /**
@@ -155,11 +163,31 @@ export async function fetchBitcoinHistory(days: string = '2000'): Promise<Bitcoi
 }
 
 /**
+ * Fetch Fear and Greed Index
+ */
+export async function fetchFearAndGreed(limit: number = 1): Promise<FearAndGreed[]> {
+  try {
+    const response = await axios.get(`https://api.alternative.me/fng/?limit=${limit}`);
+    return response.data.data.map((item: any) => ({
+      value: parseInt(item.value),
+      value_classification: item.value_classification,
+      timestamp: parseInt(item.timestamp) * 1000
+    }));
+  } catch (error) {
+    console.error('Error fetching Fear and Greed:', error);
+    return [];
+  }
+}
+
+/**
  * Get current AHR999 Data
  */
 export async function getAHR999Data(): Promise<AHR999Result | null> {
   // Use '2000' instead of '300' to share cache with history chart
-  const history = await fetchBitcoinHistory('2000');
+  const [history, fng] = await Promise.all([
+    fetchBitcoinHistory('2000'),
+    fetchFearAndGreed(1)
+  ]);
   
   if (history.length < 200) {
     return null;
@@ -184,7 +212,8 @@ export async function getAHR999Data(): Promise<AHR999Result | null> {
     geometricMean200,
     expectedPrice,
     timestamp: currentItem.timestamp,
-    indicatorStatus: status
+    indicatorStatus: status,
+    fng: fng[0]
   };
 }
 
@@ -193,46 +222,43 @@ export async function getAHR999Data(): Promise<AHR999Result | null> {
  */
 export async function getAHR999History(): Promise<AHR999HistoryPoint[]> {
   // Use default (2000 days) to leverage cache
-  const history = await fetchBitcoinHistory('2000');
+  const [history, fngHistory] = await Promise.all([
+    fetchBitcoinHistory('2000'),
+    fetchFearAndGreed(2000)
+  ]);
   
   if (history.length < 200) return [];
 
-  const results: AHR999HistoryPoint[] = [];
+  // Create a map for FNG history for quick lookup
+  const fngMap = new Map<string, number>();
+  fngHistory.forEach(item => {
+    const dateStr = format(new Date(item.timestamp), 'yyyy-MM-dd');
+    fngMap.set(dateStr, item.value);
+  });
 
-  // Sliding window calculation
-  // We need a window of 200 days.
-  // We can optimize geometric mean calculation using sliding window log sums.
-  
-  // Initialize window
-  let logSum = 0;
-  const windowSize = 200;
-  
-  // Pre-calculate first window sum (excluding the last element of the window which is handled in loop?)
-  // Let's just do it simply first.
+  const results: AHR999HistoryPoint[] = [];
   
   for (let i = 0; i < history.length; i++) {
-    // We need 200 days history prior to or including this day to calculate the mean.
-    // If i < 199, we don't have 200 days.
     if (i < 199) continue;
 
-    const window = history.slice(i - 199, i + 1); // 200 items ending at i
+    const window = history.slice(i - 199, i + 1); 
     const prices = window.map(p => p.price);
-    
-    // Optimization: we could update logSum incrementally, but recalculating 200 items is fast enough for ~3000 items
     const geoMean = calculateGeometricMean(prices);
     
     const item = history[i];
     const date = new Date(item.timestamp);
     const expected = calculateExpectedPrice(date);
-    
     const ahr = (item.price / geoMean) * (item.price / expected);
+    
+    const dateStr = format(date, 'yyyy-MM-dd');
     
     results.push({
       timestamp: item.timestamp,
       price: item.price,
       ahr999: ahr,
       geometricMean200: geoMean,
-      expectedPrice: expected
+      expectedPrice: expected,
+      fng: fngMap.get(dateStr)
     });
   }
 
