@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { differenceInDays } from 'date-fns';
+import { STATIC_BITCOIN_HISTORY } from './static-data';
 
 export const GENESIS_DATE = new Date('2009-01-03');
 
@@ -134,6 +135,14 @@ export async function fetchBitcoinHistory(days: string = '2000'): Promise<Bitcoi
   if (result.length === 0 && CACHE.history && CACHE.history.length > 0) {
     console.warn('All APIs failed, serving stale cache');
     return CACHE.history;
+  }
+
+  // Strategy 4: Final Fallback - Static Data
+  if (result.length === 0) {
+    console.warn('All APIs and Cache failed, serving STATIC fallback data');
+    // Simulate "live" by taking the static data. 
+    // Ideally we might want to extrapolate the last point to "now" but let's just return it.
+    return STATIC_BITCOIN_HISTORY;
   }
 
   // Update cache if we got data
