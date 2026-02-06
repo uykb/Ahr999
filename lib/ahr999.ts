@@ -1,0 +1,158 @@
+import axios from 'axios';
+import { differenceInDays } from 'date-fns';
+
+export const GENESIS_DATE = new Date('2009-01-03');
+
+export interface BitcoinPrice {
+  timestamp: number;
+  price: number;
+}
+
+export interface AHR999Result {
+  currentPrice: number;
+  ahr999: number;
+  geometricMean200: number;
+  expectedPrice: number;
+  timestamp: number;
+  indicatorStatus: 'buy' | 'invest' | 'high'; // <0.45, 0.45-1.2, >1.2
+}
+
+export interface AHR999HistoryPoint {
+  timestamp: number;
+  price: number;
+  ahr999: number;
+  geometricMean200: number;
+  expectedPrice: number;
+}
+
+/**
+ * Calculate Geometric Mean of an array of numbers
+ */
+export function calculateGeometricMean(values: number[]): number {
+  if (values.length === 0) return 0;
+  const logSum = values.reduce((sum, val) => sum + Math.log(val), 0);
+  return Math.exp(logSum / values.length);
+}
+
+/**
+ * Calculate Expected Price based on coin age
+ * Formula: 10^(5.84 * log10(days) - 17.01)
+ */
+export function calculateExpectedPrice(date: Date): number {
+  const ageInDays = differenceInDays(date, GENESIS_DATE);
+  if (ageInDays <= 0) return 1; 
+  return Math.pow(10, 5.84 * Math.log10(ageInDays) - 17.01);
+}
+
+/**
+ * Fetch Bitcoin Market Chart Data
+ */
+export async function fetchBitcoinHistory(days: string = 'max'): Promise<BitcoinPrice[]> {
+  try {
+    const response = await axios.get(
+      `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart`,
+      {
+        params: {
+          vs_currency: 'usd',
+          days: days,
+          interval: 'daily',
+        },
+      }
+    );
+    
+    const prices: [number, number][] = response.data.prices;
+    return prices.map(([timestamp, price]) => ({
+      timestamp,
+      price,
+    }));
+  } catch (error) {
+    console.error('Error fetching Bitcoin history:', error);
+    return [];
+  }
+}
+
+/**
+ * Get current AHR999 Data
+ */
+export async function getAHR999Data(): Promise<AHR999Result | null> {
+  const history = await fetchBitcoinHistory('300');
+  
+  if (history.length < 200) {
+    return null;
+  }
+
+  const currentItem = history[history.length - 1];
+  const currentPrice = currentItem.price;
+  const currentDate = new Date(currentItem.timestamp);
+
+  const last200 = history.slice(-200).map(p => p.price);
+  const geometricMean200 = calculateGeometricMean(last200);
+  const expectedPrice = calculateExpectedPrice(currentDate);
+  const ahr999 = (currentPrice / geometricMean200) * (currentPrice / expectedPrice);
+
+  let status: 'buy' | 'invest' | 'high' = 'high';
+  if (ahr999 < 0.45) status = 'buy';
+  else if (ahr999 <= 1.2) status = 'invest';
+
+  return {
+    currentPrice,
+    ahr999,
+    geometricMean200,
+    expectedPrice,
+    timestamp: currentItem.timestamp,
+    indicatorStatus: status
+  };
+}
+
+/**
+ * Get Historical AHR999 Data (for Chart)
+ * This is heavy, we might want to limit the range or cache it.
+ * We will calculate it for the fetched range.
+ */
+export async function getAHR999History(): Promise<AHR999HistoryPoint[]> {
+  // Fetch full history or last few years
+  const history = await fetchBitcoinHistory('max'); // max to be safe for calculation, or maybe '3650' (10 years)
+  
+  if (history.length < 200) return [];
+
+  const results: AHR999HistoryPoint[] = [];
+
+  // Sliding window calculation
+  // We need a window of 200 days.
+  // We can optimize geometric mean calculation using sliding window log sums.
+  
+  // Initialize window
+  let logSum = 0;
+  const windowSize = 200;
+  
+  // Pre-calculate first window sum (excluding the last element of the window which is handled in loop?)
+  // Let's just do it simply first.
+  
+  for (let i = 0; i < history.length; i++) {
+    // We need 200 days history prior to or including this day to calculate the mean.
+    // If i < 199, we don't have 200 days.
+    if (i < 199) continue;
+
+    const window = history.slice(i - 199, i + 1); // 200 items ending at i
+    const prices = window.map(p => p.price);
+    
+    // Optimization: we could update logSum incrementally, but recalculating 200 items is fast enough for ~3000 items
+    const geoMean = calculateGeometricMean(prices);
+    
+    const item = history[i];
+    const date = new Date(item.timestamp);
+    const expected = calculateExpectedPrice(date);
+    
+    const ahr = (item.price / geoMean) * (item.price / expected);
+    
+    results.push({
+      timestamp: item.timestamp,
+      price: item.price,
+      ahr999: ahr,
+      geometricMean200: geoMean,
+      expectedPrice: expected
+    });
+  }
+
+  return results;
+}

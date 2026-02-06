@@ -1,65 +1,95 @@
-import Image from "next/image";
+import { getAHR999Data } from '@/lib/ahr999';
+import ChartSection from '@/components/ChartSection';
 
-export default function Home() {
+export const dynamic = 'force-dynamic';
+
+export default async function Home() {
+  const data = await getAHR999Data();
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'buy': return 'bg-green-100 text-green-800 border-green-200';
+      case 'invest': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'high': return 'bg-red-100 text-red-800 border-red-200';
+      default: return 'bg-gray-100';
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'buy': return '抄底区间 (Buy Zone)';
+      case 'invest': return '定投区间 (DCA Zone)';
+      case 'high': return '起飞区间 (High Zone)';
+      default: return 'Unknown';
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
+      <div className="max-w-7xl mx-auto space-y-8">
+        
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900">Bitcoin AHR999 Index</h1>
+          <p className="text-gray-500">Real-time AHR999 Indicator for Bitcoin Accumulation</p>
+        </div>
+
+        {/* Stats Grid */}
+        {data ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            
+            {/* Price Card */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+              <div className="text-sm text-gray-500 mb-1">Current BTC Price</div>
+              <div className="text-3xl font-bold text-gray-900">
+                ${data.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+
+            {/* AHR999 Card */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+              <div className="text-sm text-gray-500 mb-1">AHR999 Index</div>
+              <div className={`text-3xl font-bold ${data.ahr999 < 0.45 ? 'text-green-600' : data.ahr999 > 1.2 ? 'text-red-600' : 'text-blue-600'}`}>
+                {data.ahr999.toFixed(4)}
+              </div>
+              <div className="text-xs text-gray-400 mt-2">
+                Expected Price: ${Math.round(data.expectedPrice).toLocaleString()}
+              </div>
+            </div>
+
+            {/* Status Card */}
+            <div className={`p-6 rounded-xl shadow-sm border ${getStatusColor(data.indicatorStatus)} flex flex-col justify-center items-center`}>
+              <div className="text-sm opacity-80 mb-1">Suggestion</div>
+              <div className="text-2xl font-bold text-center">
+                {getStatusText(data.indicatorStatus)}
+              </div>
+            </div>
+
+          </div>
+        ) : (
+          <div className="p-10 text-center text-red-500 bg-white rounded-xl">
+            Failed to load current data. Please try again later.
+          </div>
+        )}
+
+        {/* Chart Section */}
+        <ChartSection />
+
+        {/* Footer / Explanation */}
+        <div className="bg-white p-6 rounded-xl shadow-sm text-gray-600 text-sm space-y-4">
+          <h3 className="font-bold text-lg text-gray-900">About AHR999 Index</h3>
+          <p>
+            The AHR999 index is used to assess the deviation between short-term returns and price of Bitcoin.
+            Formula: <code className="bg-gray-100 px-1 py-0.5 rounded">AHR999 = (Price / 200-Day GeoMean) * (Price / Exponential Growth Valuation)</code>
           </p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong>&lt; 0.45</strong>: The bottom range. It is recommended to buy the bottom.</li>
+            <li><strong>0.45 - 1.2</strong>: The fixed investment range. Suitable for Dollar Cost Averaging (DCA).</li>
+            <li><strong>&gt; 1.2</strong>: The bull market top range. Prices are relatively high.</li>
+          </ul>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+      </div>
+    </main>
   );
 }
