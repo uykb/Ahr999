@@ -8,7 +8,7 @@ const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function Home() {
   const { data } = useSWR<AHR999Result>('/api/ahr999', fetcher, {
-    refreshInterval: 10000, // 每10秒自动刷新一次
+    refreshInterval: 3000, // 每3秒自动刷新一次
     revalidateOnFocus: true
   });
 

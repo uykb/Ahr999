@@ -70,8 +70,8 @@ const CURRENT_PRICE_CACHE: {
   price: 0,
   timestamp: 0
 };
-const PRICE_CACHE_DURATION = 1000 * 10; // 10 seconds cache for current price
-const STALE_PRICE_THRESHOLD = 1000 * 60 * 5; // 5 minutes stale price threshold
+const PRICE_CACHE_DURATION = 1000 * 3; // 3 seconds cache for current price
+const STALE_PRICE_THRESHOLD = 1000 * 60 * 2; // 2 minutes stale price threshold
 
 /**
  * Fetch Current Bitcoin Price (Real-time) with Retries
@@ -84,8 +84,15 @@ async function fetchCurrentPrice(retries = 2): Promise<number | null> {
 
   for (let i = 0; i <= retries; i++) {
     try {
-      // Strategy 1: Binance Ticker (Fastest & Most reliable for real-time)
+      // Strategy 1: Binance Ticker (Weight 1)
       const response = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { timeout: 2000 });
+      
+      // Monitor Binance Rate Limit (Optional logging)
+      const usedWeight = response.headers['x-mbx-used-weight-1m'];
+      if (usedWeight && parseInt(usedWeight) > 1000) {
+        console.warn(`Binance API Rate Limit Warning: Used weight ${usedWeight}/1200`);
+      }
+
       const price = parseFloat(response.data.price);
       if (!isNaN(price) && price > 0) {
         CURRENT_PRICE_CACHE.price = price;
