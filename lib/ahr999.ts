@@ -62,7 +62,7 @@ const CACHE: {
   lastFetch: 0,
 };
 
-const CACHE_DURATION = 1000 * 60 * 60; // 1 hour cache for historical data (since it only changes daily)
+const CACHE_DURATION = 1000 * 60 * 10; // 10 minutes cache for historical data
 const CURRENT_PRICE_CACHE: {
   price: number;
   timestamp: number;
@@ -71,40 +71,52 @@ const CURRENT_PRICE_CACHE: {
   timestamp: 0
 };
 const PRICE_CACHE_DURATION = 1000 * 10; // 10 seconds cache for current price
+const STALE_PRICE_THRESHOLD = 1000 * 60 * 5; // 5 minutes stale price threshold
 
 /**
- * Fetch Current Bitcoin Price (Real-time)
+ * Fetch Current Bitcoin Price (Real-time) with Retries
  */
-async function fetchCurrentPrice(): Promise<number | null> {
+async function fetchCurrentPrice(retries = 2): Promise<number | null> {
   const now = Date.now();
   if (CURRENT_PRICE_CACHE.price > 0 && (now - CURRENT_PRICE_CACHE.timestamp < PRICE_CACHE_DURATION)) {
     return CURRENT_PRICE_CACHE.price;
   }
 
-  try {
-    // Strategy 1: Binance Ticker (Fastest & Most reliable for real-time)
-    const response = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { timeout: 3000 });
-    const price = parseFloat(response.data.price);
-    if (!isNaN(price) && price > 0) {
-      CURRENT_PRICE_CACHE.price = price;
-      CURRENT_PRICE_CACHE.timestamp = now;
-      return price;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      // Strategy 1: Binance Ticker (Fastest & Most reliable for real-time)
+      const response = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { timeout: 2000 });
+      const price = parseFloat(response.data.price);
+      if (!isNaN(price) && price > 0) {
+        CURRENT_PRICE_CACHE.price = price;
+        CURRENT_PRICE_CACHE.timestamp = now;
+        return price;
+      }
+    } catch (e) {
+      if (i === retries) console.warn('Binance ticker failed after retries');
     }
-  } catch (e) {
-    console.warn('Binance ticker failed, trying Coingecko...');
+
+    try {
+      // Strategy 2: Coingecko Simple Price
+      const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd', { timeout: 2000 });
+      const price = response.data.bitcoin.usd;
+      if (typeof price === 'number' && price > 0) {
+        CURRENT_PRICE_CACHE.price = price;
+        CURRENT_PRICE_CACHE.timestamp = now;
+        return price;
+      }
+    } catch (e) {
+      if (i === retries) console.warn('Coingecko simple price failed after retries');
+    }
+    
+    // Brief delay before retry
+    if (i < retries) await new Promise(r => setTimeout(r, 500));
   }
 
-  try {
-    // Strategy 2: Coingecko Simple Price
-    const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd', { timeout: 3000 });
-    const price = response.data.bitcoin.usd;
-    if (typeof price === 'number' && price > 0) {
-      CURRENT_PRICE_CACHE.price = price;
-      CURRENT_PRICE_CACHE.timestamp = now;
-      return price;
-    }
-  } catch (e) {
-    console.error('All current price APIs failed');
+  // Final Fallback: Return stale cache if it's not too old
+  if (CURRENT_PRICE_CACHE.price > 0 && (now - CURRENT_PRICE_CACHE.timestamp < STALE_PRICE_THRESHOLD)) {
+    console.warn(`Using stale price from cache (${Math.round((now - CURRENT_PRICE_CACHE.timestamp)/1000)}s old)`);
+    return CURRENT_PRICE_CACHE.price;
   }
 
   return null;
@@ -243,8 +255,17 @@ export async function getAHR999Data(): Promise<AHR999Result | null> {
 
   // Determine current price: prefer real-time, fallback to history last item
   const historyLastItem = history[history.length - 1];
-  const currentPrice = currentPriceRealtime || historyLastItem.price;
-  const currentTimestamp = currentPriceRealtime ? Date.now() : historyLastItem.timestamp;
+  
+  let currentPrice = historyLastItem.price;
+  let currentTimestamp = historyLastItem.timestamp;
+  
+  if (currentPriceRealtime) {
+    currentPrice = currentPriceRealtime;
+    currentTimestamp = Date.now();
+  } else {
+    console.warn('Real-time price unavailable, falling back to history data price');
+  }
+
   const currentDate = new Date(currentTimestamp);
 
   // Calculate Geometric Mean
