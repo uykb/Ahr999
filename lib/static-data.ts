@@ -1,4 +1,4 @@
-// Snapshot generated on 2026-02-10T00:58:27.730Z
+// Snapshot generated on 2026-02-10T02:27:08.290Z
 import { BitcoinPrice, FearAndGreed } from './ahr999';
 
 export const STATIC_BITCOIN_HISTORY: BitcoinPrice[] = [
