@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { differenceInDays, format } from 'date-fns';
-import { STATIC_BITCOIN_HISTORY } from './static-data';
+import { STATIC_BITCOIN_HISTORY, STATIC_FNG_HISTORY } from './static-data';
 
 export const GENESIS_DATE = new Date('2009-01-03');
 
@@ -241,6 +241,12 @@ export async function fetchFearAndGreed(limit: number = 1): Promise<FearAndGreed
     }));
   } catch (error) {
     console.error('Error fetching Fear and Greed:', error);
+    // Fallback to static data if available
+    if (STATIC_FNG_HISTORY && STATIC_FNG_HISTORY.length > 0) {
+      console.warn('Using static fallback for Fear & Greed');
+      // Return the most recent N items from static history
+      return STATIC_FNG_HISTORY.slice(-limit);
+    }
     return [];
   }
 }
