@@ -1,11 +1,7 @@
-// Snapshot generated on 2026-02-24T02:05:54.537Z
+// Snapshot generated on 2026-02-25T02:07:19.790Z
 import { BitcoinPrice, FearAndGreed } from './ahr999';
 
 export const STATIC_BITCOIN_HISTORY: BitcoinPrice[] = [
-  {
-    "timestamp": 1746028800000,
-    "price": 96849.8
-  },
   {
     "timestamp": 1746115200000,
     "price": 97331.1
@@ -1200,16 +1196,15 @@ export const STATIC_BITCOIN_HISTORY: BitcoinPrice[] = [
   },
   {
     "timestamp": 1771862400000,
-    "price": 64088.1
+    "price": 63972.4
+  },
+  {
+    "timestamp": 1771948800000,
+    "price": 66286
   }
 ];
 
 export const STATIC_FNG_HISTORY: FearAndGreed[] = [
-  {
-    "value": 79,
-    "value_classification": "Extreme Greed",
-    "timestamp": 1599091200000
-  },
   {
     "value": 40,
     "value_classification": "Fear",
@@ -11204,5 +11199,10 @@ export const STATIC_FNG_HISTORY: FearAndGreed[] = [
     "value": 8,
     "value_classification": "Extreme Fear",
     "timestamp": 1771891200000
+  },
+  {
+    "value": 11,
+    "value_classification": "Extreme Fear",
+    "timestamp": 1771977600000
   }
 ];
