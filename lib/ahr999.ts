@@ -1,6 +1,4 @@
-import axios from 'axios';
 import { differenceInDays } from 'date-fns';
-import { STATIC_BITCOIN_HISTORY } from './static-data';
 
 export const GENESIS_DATE = new Date('2009-01-03');
 
@@ -63,22 +61,24 @@ const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
 async function fetchFromBinance(): Promise<BitcoinPrice[]> {
   try {
     console.log('Fetching fallback data from Binance...');
-    const response = await axios.get(
-      'https://api.binance.com/api/v3/klines',
-      {
-        params: {
-          symbol: 'BTCUSDT',
-          interval: '1d',
-          limit: 1000
-        },
-        timeout: 5000
-      }
+    const response = await fetch(
+      'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000',
+      { next: { revalidate: 3600 } }
     );
     
+    if (!response.ok) {
+      throw new Error(`Binance API error: ${response.status}`);
+    }
+
     // Binance response: [Open Time, Open, High, Low, Close, Volume, Close Time, ...]
     // We use Close Time (index 6) or Open Time (index 0) and Close Price (index 4)
-    const data = response.data as any[][];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await response.json() as any[][];
     
+    if (!Array.isArray(data)) {
+      throw new Error('Invalid Binance data format');
+    }
+
     return data.map(item => ({
       timestamp: item[0], // Open time
       price: parseFloat(item[4]) // Close price
@@ -105,25 +105,25 @@ export async function fetchBitcoinHistory(days: string = '2000'): Promise<Bitcoi
   // Strategy 1: Try Coingecko
   try {
     console.log(`Fetching Bitcoin history from Coingecko (${days} days)...`);
-    const response = await axios.get(
-      `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart`,
-      {
-        params: {
-          vs_currency: 'usd',
-          days: days,
-          interval: 'daily',
-        },
-        timeout: 8000, // 8s timeout
-      }
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=${days}&interval=daily`,
+      { next: { revalidate: 3600 } }
     );
     
-    const prices: [number, number][] = response.data.prices;
-    result = prices.map(([timestamp, price]) => ({
-      timestamp,
-      price,
-    }));
+    if (response.ok) {
+      const data = await response.json();
+      const prices: [number, number][] = data.prices;
+      if (Array.isArray(prices)) {
+        result = prices.map(([timestamp, price]) => ({
+          timestamp,
+          price,
+        }));
+      }
+    } else {
+      console.warn(`Coingecko API failed with status: ${response.status}`);
+    }
   } catch (error) {
-    console.error('Coingecko API failed, trying fallback...');
+    console.error('Coingecko API failed, trying fallback...', error);
   }
 
   // Strategy 2: Try Binance if Coingecko failed or returned empty
@@ -137,11 +137,10 @@ export async function fetchBitcoinHistory(days: string = '2000'): Promise<Bitcoi
     return CACHE.history;
   }
 
-  // Strategy 4: Final Fallback - Static Data
+  // Strategy 4: Final Fallback - Static Data (Dynamic Import)
   if (result.length === 0) {
     console.warn('All APIs and Cache failed, serving STATIC fallback data');
-    // Simulate "live" by taking the static data. 
-    // Ideally we might want to extrapolate the last point to "now" but let's just return it.
+    const { STATIC_BITCOIN_HISTORY } = await import('./static-data');
     return STATIC_BITCOIN_HISTORY;
   }
 
@@ -201,25 +200,25 @@ export async function getAHR999History(): Promise<AHR999HistoryPoint[]> {
 
   // Sliding window calculation
   // We need a window of 200 days.
-  // We can optimize geometric mean calculation using sliding window log sums.
-  
-  // Initialize window
-  let logSum = 0;
   const windowSize = 200;
-  
-  // Pre-calculate first window sum (excluding the last element of the window which is handled in loop?)
-  // Let's just do it simply first.
-  
-  for (let i = 0; i < history.length; i++) {
-    // We need 200 days history prior to or including this day to calculate the mean.
-    // If i < 199, we don't have 200 days.
-    if (i < 199) continue;
+  let logSum = 0;
 
-    const window = history.slice(i - 199, i + 1); // 200 items ending at i
-    const prices = window.map(p => p.price);
-    
-    // Optimization: we could update logSum incrementally, but recalculating 200 items is fast enough for ~3000 items
-    const geoMean = calculateGeometricMean(prices);
+  // Pre-calculate first window sum (first 199 items)
+  for (let i = 0; i < windowSize - 1; i++) {
+    if (history[i].price > 0) {
+      logSum += Math.log(history[i].price);
+    }
+  }
+  
+  for (let i = windowSize - 1; i < history.length; i++) {
+    // Add current item to window
+    const currentPrice = history[i].price;
+    if (currentPrice > 0) {
+      logSum += Math.log(currentPrice);
+    }
+
+    // Now logSum represents the sum of log(prices) for window [i-199 ... i]
+    const geoMean = Math.exp(logSum / windowSize);
     
     const item = history[i];
     const date = new Date(item.timestamp);
@@ -234,6 +233,13 @@ export async function getAHR999History(): Promise<AHR999HistoryPoint[]> {
       geometricMean200: geoMean,
       expectedPrice: expected
     });
+
+    // Remove the oldest item from the window for the next iteration
+    // The item to remove is at index (i - 199)
+    const oldestPrice = history[i - windowSize + 1].price;
+    if (oldestPrice > 0) {
+      logSum -= Math.log(oldestPrice);
+    }
   }
 
   return results;

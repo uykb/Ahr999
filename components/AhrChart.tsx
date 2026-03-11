@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { AHR999HistoryPoint } from '@/lib/ahr999';
 import { format } from 'date-fns';
@@ -10,7 +10,7 @@ interface AhrChartProps {
 }
 
 export default function AhrChart({ data }: AhrChartProps) {
-  const option = {
+  const option = useMemo(() => ({
     title: {
       text: 'Bitcoin Price vs AHR999 Index',
       left: 'center'
@@ -114,7 +114,7 @@ export default function AhrChart({ data }: AhrChartProps) {
         }
       }
     ]
-  };
+  }), [data]);
 
   return <ReactECharts option={option} style={{ height: '500px', width: '100%' }} />;
 }
